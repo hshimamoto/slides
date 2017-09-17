@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<!-- vim:set sw=2 sts=2: -->
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>EFAULT</title>
+  <link href="efault.css" rel="stylesheet"/>
+</head>
+
+<body class="impress-not-supported">
+
+<div id="impress">
+
+  <!-- TITLE -->
+  <div class="step" data-x="0" data-y="0">
+    <h1>EFAULT</h1>
+    <div>
+      SEGV in syscall
+    </div>
+    <div>
+      On x86 / x86-64 Linux
+    </div>
+    <br/> <br/> <br/>
+    <div>
+      2017-09-18<br/>
+      Hiroshi Shimamoto
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="700">
+    <h2>SEGV</h2>
+    <hr/>
+    <div>
+      <b>Segmantation Violation</b>
+    </div>
+    <div>
+      When user space application accesses <b>bad area</b>
+    </div>
+    <pre class="code">int *p = 0;
+
+*p = 1;</pre>
+  </div>
+
+  <div class="step" data-x="0" data-y="1400">
+    <h2>SEGV</h2>
+    <hr/>
+    <div>
+      In <b>kernel space</b> ?
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="2100">
+    <h2>Kernel Panic</h2>
+  </div>
+
+  <div class="step" data-x="0" data-y="2800">
+    <h2>EFAULT</h2>
+    <hr/>
+    <div>
+      User application can pass <b>bad pointer</b>
+      in system call
+    </div>
+    <pre class="code">char *p = 0;
+int ret = read(0, p, 256);</pre>
+    <div>
+      Kernel returns <b>EFAULT</b> on such case
+    </div>
+    <div>
+      <b>ret</b> is -1, and <b>errno</b> is <b>EFAULT</b>
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="3500">
+    <h2>Pagefault behind SEGV</h2>
+    <hr/>
+    <div>
+      On access to bad area, MMU in CPU causes
+      <b>#PF</b> exception
+    </div>
+    <div>
+      Kernel catches <b>#PF</b> and send <b>SEGV</b> signal
+      to the process
+    </div>
+    <div>
+      Default behavior, kernel terminates process with coredump
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="4200">
+    <h2>Why SEGV terminates process ?</h2>
+    <hr/>
+    <div>
+      Useually, user process cannot continue,
+      because we don't know the next instruction
+      CPU should run on SEGV
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="4900">
+    <h2>Why EFAULT on syscall ?</h2>
+    <hr/>
+    <div>
+      Kernel knows which instruction may cause <b>#PF</b>
+      and can continue with error (<b>-EFAULT</b>)
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="5600">
+    <h2>Unexpected #PF means Panic</h2>
+  </div>
+
+  <div class="step" data-x="0" data-y="6300">
+    <h2>Mark instruction which may cause #PF</h2>
+  </div>
+
+  <div class="step" data-x="0" data-y="7000">
+    <h2>copy_to_user, copy_from_user, get_user, put_user etc.</h2>
+    <hr/>
+    <div>
+      There are macros to access user space pointer
+      that passed from syscall
+    </div>
+    <div>
+      See arch/x86/include/asm/uaccess.h
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="7700">
+    <h2>Usage of __get_user</h2>
+    <hr/>
+    <pre class="code">err = __get_user(val, ptr);
+if (err)
+	return err;</pre>
+    <div>
+      If <i>ptr</i> is bad, __get_user() returns <b>-EFAULT</b>
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="8400">
+    <h2>Dig into __get_user</h2>
+    <hr/>
+    <div>
+      Psuedo assembly code
+    </div>
+    <pre class="code">err = __get_user(val, ptr);
+
+1:  mov (ptr), val
+2:
+.section .fixup,"ax"
+3:  mov <b>-EFALUT</b>, err
+    jmp 2b
+.previous
+<b>_ASM_EXTABLE(1b, 3b)</b></pre>
+  </div>
+
+  <div class="step" data-x="0" data-y="9100">
+    <h2>_ASM_EXTABLE(<i>a</i>, <i>b</i>)</h2>
+    <hr/>
+    <div>
+      This macro adds exception table entry
+    </div>
+    <div>
+      <i>a</i> is instruction address of exception
+    </div>
+    <div>
+      <i>b</i> is instruction address to handle exception
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="9800">
+    <h2>Dig into __get_user</h2>
+    <hr/>
+    <pre class="code">err = __get_user(val, ptr);
+
+1:  mov (ptr), val
+2:
+.section .fixup,"ax"
+3:  mov <b>-EFALUT</b>, err
+    jmp 2b
+.previous
+<b>_ASM_EXTABLE(1b, 3b)</b></pre>
+    <div>
+      If <i>1</i> instruction causes <b>#PF</b>
+      jump to <i>3</i> and
+      set variable <i>err</i> <b>-EFAULT</b>
+      then, return to <i>2</i>
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="10500">
+    <h2>Dig into __get_user</h2>
+    <hr/>
+    <div>
+      Section <b>.fixup</b> is separated at link time
+    </div>
+    <pre class="code"><u>1:  mov (ptr0), val0</u>		    <u>1:  mov (ptr0), val0</u>
+<u>2:</u>				    <u>2:</u>
+<b>.section .fixup,"ax"</b>	    	    <i>1:	mov (ptr1), val1</i>
+<u>3:  mov -EFALUT, err</u>		    <i>2:</i>
+    <u>jmp 2b</u>			    <b>.seciont .fixup,"ax"</b>
+<b>.previous</b>			    <u>3:	mov -EFAULT, err</u>
+<u>_ASM_EXTABLE(1b, 3b)</u>	    		<u>jmp 2b</u>
+<i>1:  mov (ptr1), val1</i>		    <i>3:	mov -EFAULT, err</i>
+<i>2:</i>	  				<i>jmp 2b</i>
+<b>.section .fixup,"ax"</b>
+<i>3:  mov -EFALUT, err</i>
+    <i>jmp 2b</i>
+<b>.previous</b>
+<i>_ASM_EXTABLE(1b, 3b)</i>
+</pre>
+  </div>
+
+  <div class="step" data-x="0" data-y="11200">
+    <h2>Pagefault handler takes care</h2>
+    <hr/>
+    <div>
+      In <b>#PF</b> handler, kernel checks if instuction pointer
+      is registered in exception table (extable)
+    </div>
+    <div>
+      If it is found, do corresponding action
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="11900">
+    <h2>Summary</h2>
+    <hr/>
+    <div>
+      <b>SEGV</b> in kernel space causes <b>kernel panic</b>
+    </div>
+    <div>
+      But, if <b>SEGV</b> is expected, kernel can handle properly
+      and returns <b>EFAULT</b>
+    </div>
+    <div>
+      Macro which access to user space make extable for <b>EFAULT</b>
+      with inline assembler and section trick
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="12600">
+    <h1>Thank you!</h1>
+  </div>
+
+  <div class="step" data-x="0" data-y="14000">
+    <h2>Extra</h2>
+    <hr/>
+    <div>
+      Error check doesn't look efficient
+    </div>
+    <pre class="code">if (!access_ok(VERIFY_READ, act, sizeof(*act)) ||
+    __get_user(new_ka.sa.sa_handler, &amp;act-&gt;sa_handler) ||
+    __get_user(new_ka.sa.sa_restorer, &amp;act-&gt;sa_restorer) ||
+    __get_user(new_ka.sa.sa_flags, &amp;act-&gt;sa_flags) ||
+    __get_user(mask, &amp;act-&gt;sa_mask))</pre>
+    <div class="ref">
+      kernel/signal.c
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="14700">
+    <h2>Extra</h2>
+    <hr/>
+    <div>
+      On x86 / x86-64, there are some optimized macro to reduce
+      overhead in normal case
+    </div>
+  </div>
+
+  <div class="step" data-x="0" data-y="15400">
+    <h2>Extra</h2>
+    <hr/>
+    <div>
+      Try and catch implementation
+    </div>
+    <pre class="code">get_user_try {
+	get_user_ex(val0, ptr0);
+	get_user_ex(val1, ptr1);
+	get_user_ex(val2, ptr2);
+	...
+} get_user_catch(err);</pre>
+    <div>
+      Interesting? Ask me
+    </div>
+  </div>
+</div>
+
+<script src="../js/impress.js"></script>
+<script>impress().init();</script>
+
+</body>
+</html>
